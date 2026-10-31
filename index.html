@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>YouTube Chat</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body {
+    display: flex; flex-direction: column;
+    font: 600 18px/1.35 "Segoe UI", Arial, sans-serif; color: #fff;
+    text-shadow: 0 1px 3px #000, 0 0 2px #000;
+  }
+  body.bg { background: #18181b; text-shadow: none; }
+  #settings { display: flex; gap: 6px; padding: 8px 10px; background: #27272a; }
+  #settings[hidden] { display: none; }
+  #settings input {
+    flex: 1; min-width: 0; padding: 6px 8px; font: 400 14px "Segoe UI", Arial, sans-serif;
+    color: #fff; background: #18181b; border: 1px solid #52525b; border-radius: 4px;
+  }
+  #settings button {
+    padding: 6px 12px; font: 600 14px "Segoe UI", Arial, sans-serif;
+    color: #fff; background: #b91c1c; border: 0; border-radius: 4px; cursor: pointer;
+  }
+  #chat {
+    flex: 1; min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  .msg { padding: 3px 10px; overflow-wrap: anywhere; flex: none; }
+  .author { color: #7dd3fc; margin-right: 6px; }
+  .amount { color: #fde047; margin-right: 6px; }
+  #status { padding: 3px 10px; color: #fca5a5; flex: none; }
+  #status:empty { display: none; }
+  #unlock {
+    position: fixed; top: 8px; left: 8px; right: 8px; padding: 10px;
+    font: inherit; color: #fff; background: #b91c1c; border: 0; border-radius: 6px; cursor: pointer;
+  }
+  #unlock[hidden] { display: none; }
+</style>
+</head>
+<body>
+<button id="unlock" hidden>Bấm vào đây để bật âm thanh đọc bình luận</button>
+<form id="settings" hidden>
+  <input id="target" placeholder="Dán link livestream hoặc @kênh" aria-label="Link livestream YouTube" autocomplete="off" spellcheck="false">
+  <button type="submit">Áp dụng</button>
+</form>
+<div id="chat"><div id="status"></div></div>
+<script>
+  const MAX_MESSAGES = 50;
+  const params = new URLSearchParams(location.search);
+  const statusEl = document.getElementById('status');
+  const unlock = document.getElementById('unlock');
+  const settings = document.getElementById('settings');
+  const targetInput = document.getElementById('target');
+  // Ô nhập link chỉ hiện ở dock (có nền), không lên hình stream
+  if (params.has('bg')) {
+    document.body.classList.add('bg');
+    settings.hidden = false;
+  }
+
+  settings.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch('/target', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: targetInput.value }),
+      });
+      if (!response.ok) statusEl.textContent = (await response.json()).error;
+      else targetInput.blur();
+    } catch (err) {
+      statusEl.textContent = 'Không kết nối được tới chương trình';
+    }
+  };
+
+  function addMessage({ author, text, amount }) {
+    const row = document.createElement('div');
+    row.className = 'msg';
+    const name = document.createElement('span');
+    name.className = 'author';
+    name.textContent = author;
+    row.append(name);
+    if (amount) {
+      const paid = document.createElement('span');
+      paid.className = 'amount';
+      paid.textContent = amount;
+      row.append(paid);
+    }
+    row.append(text);
+    statusEl.before(row);
+    // Phần tử cuối của khung chat luôn là dòng trạng thái
+    if (statusEl.parentElement.childElementCount - 1 > MAX_MESSAGES) {
+      statusEl.parentElement.firstElementChild.remove();
+    }
+  }
+
+  new EventSource('/events').onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    if (event.type === 'chat') addMessage(event);
+    if (event.type === 'status') statusEl.textContent = event.text;
+    if (event.type === 'clear') {
+      document.querySelectorAll('.msg').forEach((row) => row.remove());
+      if (document.activeElement !== targetInput) targetInput.value = event.target;
+    }
+  };
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Trình duyệt thường chặn tự phát âm thanh; OBS thì không.
+  const waitForClick = () => new Promise((resolve) => {
+    unlock.hidden = false;
+    unlock.onclick = () => { unlock.hidden = true; resolve(); };
+  });
+
+  async function play(blob) {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    const ended = new Promise((resolve) => { audio.onended = audio.onerror = resolve; });
+    try {
+      await audio.play();
+    } catch (err) {
+      if (err.name !== 'NotAllowedError') throw err;
+      await waitForClick();
+      await audio.play();
+    }
+    await ended;
+    URL.revokeObjectURL(url);
+  }
+
+  async function speakLoop() {
+    while (true) {
+      try {
+        const response = await fetch('/speech/next');
+        if (response.status === 200) await play(await response.blob());
+      } catch (err) {
+        await sleep(2000);
+      }
+    }
+  }
+
+  if (params.has('speak')) speakLoop();
+</script>
+</body>
+</html>

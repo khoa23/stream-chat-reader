@@ -1,0 +1,29 @@
+[package]
+name = "ReadComments"
+version = "2.0.0"
+edition = "2021"
+
+[[bin]]
+name = "ReadComments"
+path = "src/main.rs"
+
+# Các phiên bản được giữ cố định trong Cargo.lock để build không cần công cụ ngoài bộ Rust
+# (không dùng raw-dylib, vì cơ chế đó cần dlltool và as). Xem build.bat.
+[dependencies]
+httpdate = "1"
+native-tls = "0.2"
+rand = "0.8"
+native-windows-gui = { version = "1.0.13", default-features = false, features = ["combobox", "textbox", "trackbar", "notice", "cursor", "message-window"] }
+rodio = { version = "0.20", default-features = false, features = ["symphonia-mp3", "wav"] }
+serde_json = "1"
+tiny_http = "0.12"
+tungstenite = { version = "0.24", features = ["native-tls"] }
+ureq = { version = "2", default-features = false, features = ["native-tls"] }
+winapi = { version = "0.3", features = ["libloaderapi", "processthreadsapi", "winbase", "winuser"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
